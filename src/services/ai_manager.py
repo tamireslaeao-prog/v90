@@ -22,16 +22,16 @@ except ImportError:
     HAS_GEMINI = False
 
 try:
-    import openai
+    from openai import OpenAI
     HAS_OPENAI = True
 except ImportError:
     HAS_OPENAI = False
 
 try:
-    from services.groq_client import groq_client
-    HAS_GROQ_CLIENT = True
+    from groq import Groq
+    HAS_GROQ = True
 except ImportError:
-    HAS_GROQ_CLIENT = False
+    HAS_GROQ = False
 
 try:
     from services.search_api_manager import search_api_manager
@@ -88,9 +88,9 @@ class AIManager:
             if HAS_OPENAI:
                 api_key = os.getenv('OPENAI_API_KEY')
                 if api_key:
-                    openai.api_key = api_key
+                    client = OpenAI(api_key=api_key)
                     self.providers['openai'] = {
-                        'client': openai,
+                        'client': client,
                         'available': True,
                         'model': 'gpt-4-0125-preview',
                         'priority': 2,
@@ -110,7 +110,10 @@ class AIManager:
 
         # Inicializa Groq
         try:
-            if HAS_GROQ_CLIENT and groq_client and groq_client.is_enabled():
+            if HAS_GROQ:
+                api_key = os.getenv('GROQ_API_KEY')
+                if api_key:
+                    client = Groq(api_key=api_key)
                 self.providers['groq'] = {
                     'client': groq_client,
                     'available': True,
@@ -123,8 +126,10 @@ class AIManager:
                     'supports_tools': False
                 }
                 logger.info("✅ Groq (llama3-70b-8192) inicializado.")
+                else:
+                    logger.info("ℹ️ GROQ_API_KEY não configurada.")
             else:
-                logger.info("ℹ️ Groq não disponível ou não configurado.")
+                logger.info("ℹ️ Biblioteca 'groq' não instalada.")
         except Exception as e:
             logger.warning(f"ℹ️ Groq não disponível: {str(e)}")
 
@@ -186,7 +191,7 @@ class AIManager:
 
     def _get_google_search_function_definition(self) -> Dict[str, Any]:
         """Definição da função de busca Google para Gemini"""
-        return {
+                        'client': client,
             "name": "google_search",
             "description": "Busca informações atualizadas na internet usando múltiplos provedores de busca",
             "parameters": {
@@ -361,7 +366,8 @@ class AIManager:
                     tool_choice="auto"
                 )
             else:
-                response = openai.ChatCompletion.create(
+                client = self.providers['openai']['client']
+                response = client.chat.completions.create(
                     model="gpt-4-0125-preview",
                     messages=messages
                 )
@@ -464,7 +470,8 @@ class AIManager:
 
     async def _generate_openai(self, prompt: str, max_tokens: int, temperature: float) -> str:
         """Gera texto usando OpenAI"""
-        response = openai.ChatCompletion.create(
+        client = self.providers['openai']['client']
+        response = client.chat.completions.create(
             model="gpt-4-0125-preview",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=max_tokens,
@@ -472,6 +479,20 @@ class AIManager:
         )
         
         return response.choices[0].message.content
+
+    def generate_content(self, prompt: str, max_tokens: int = 4000) -> str:
+        """Gera conteúdo usando o melhor provedor disponível"""
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(self.generate_text(prompt, max_tokens))
+        finally:
+            loop.close()
+
+    def generate_analysis(self, prompt: str, max_tokens: int = 4000) -> str:
+        """Alias para generate_content"""
+        return self.generate_content(prompt, max_tokens)
 
     def get_status(self) -> Dict[str, Any]:
         """Retorna status dos provedores"""

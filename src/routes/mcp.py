@@ -1,85 +1,102 @@
-from flask import Blueprint, request, jsonify
-import logging
-from services.mcp_sequential_thinking_manager import MCPSequentialThinkingManager
-from services.mcp_supadata_manager import MCPSupadataManager
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+ARQV30 Enhanced v3.0 - MCP Routes
+Rotas para integração com MCPs
+"""
 
-mcp_bp = Blueprint("mcp", __name__)
+import logging
+from datetime import datetime
+from flask import Blueprint, request, jsonify
+
 logger = logging.getLogger(__name__)
 
-# Inicializa os managers (pode ser feito uma vez na inicialização da aplicação)
-try:
-    sequential_thinking_manager = MCPSequentialThinkingManager()
-    supadata_manager = MCPSupadataManager()
-except ValueError as e:
-    logger.error(f"Erro ao inicializar managers MCP: {e}")
-    sequential_thinking_manager = None
-    supadata_manager = None
+mcp_bp = Blueprint('mcp', __name__)
 
-@mcp_bp.route("/mcp/sequential_thinking/start", methods=["POST"])
-def start_sequential_thinking():
-    if not sequential_thinking_manager:
-        return jsonify({"error": "Serviço MCP Sequential Thinking não configurado."}), 500
-    data = request.json
-    problem_description = data.get("problem_description")
-    initial_context = data.get("initial_context")
+@mcp_bp.route('/status', methods=['GET'])
+def mcp_status():
+    """Status dos MCPs disponíveis"""
+    try:
+        # Verifica status dos MCPs
+        mcp_status = {
+            'supadata': {
+                'available': bool(os.getenv('SUPADATA_MCP_URL')),
+                'status': 'configured' if os.getenv('SUPADATA_MCP_URL') else 'not_configured'
+            },
+            'trendfinder': {
+                'available': bool(os.getenv('TRENDFINDER_MCP_URL')),
+                'status': 'configured' if os.getenv('TRENDFINDER_MCP_URL') else 'not_configured'
+            },
+            'sequential_thinking': {
+                'available': bool(os.getenv('MCP_SEQUENTIAL_THINKING_URL')),
+                'status': 'configured' if os.getenv('MCP_SEQUENTIAL_THINKING_URL') else 'not_configured'
+            }
+        }
+        
+        return jsonify({
+            "success": True,
+            "mcp_status": mcp_status,
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao verificar status MCP: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
-    if not problem_description:
-        return jsonify({"error": "problem_description é obrigatório."}), 400
-
-    result = sequential_thinking_manager.start_thinking_process(problem_description, initial_context)
-    return jsonify(result)
-
-@mcp_bp.route("/mcp/sequential_thinking/advance", methods=["POST"])
-def advance_sequential_thinking():
-    if not sequential_thinking_manager:
-        return jsonify({"error": "Serviço MCP Sequential Thinking não configurado."}), 500
-    data = request.json
-    process_id = data.get("process_id")
-    user_input = data.get("user_input")
-
-    if not process_id:
-        return jsonify({"error": "process_id é obrigatório."}), 400
-
-    result = sequential_thinking_manager.advance_thinking_step(process_id, user_input)
-    return jsonify(result)
-
-@mcp_bp.route("/mcp/sequential_thinking/status", methods=["POST"])
-def get_sequential_thinking_status():
-    if not sequential_thinking_manager:
-        return jsonify({"error": "Serviço MCP Sequential Thinking não configurado."}), 500
-    data = request.json
-    process_id = data.get("process_id")
-
-    if not process_id:
-        return jsonify({"error": "process_id é obrigatório."}), 400
-
-    result = sequential_thinking_manager.get_process_status(process_id)
-    return jsonify(result)
-
-@mcp_bp.route("/mcp/supadata/extract_url", methods=["POST"])
-def supadata_extract_url():
-    if not supadata_manager:
-        return jsonify({"error": "Serviço MCP Supadata não configurado."}), 500
-    data = request.json
-    url = data.get("url")
-
-    if not url:
-        return jsonify({"error": "url é obrigatório."}), 400
-
-    result = supadata_manager.extract_from_url(url)
-    return jsonify(result)
-
-@mcp_bp.route("/mcp/supadata/extract_video", methods=["POST"])
-def supadata_extract_video():
-    if not supadata_manager:
-        return jsonify({"error": "Serviço MCP Supadata não configurado."}), 500
-    data = request.json
-    video_url = data.get("video_url")
-
-    if not video_url:
-        return jsonify({"error": "video_url é obrigatório."}), 400
-
-    result = supadata_manager.extract_from_video(video_url)
-    return jsonify(result)
-
-
+@mcp_bp.route('/test/<mcp_name>', methods=['POST'])
+def test_mcp(mcp_name):
+    """Testa conectividade com MCP específico"""
+    try:
+        data = request.get_json() or {}
+        test_query = data.get('query', 'teste conectividade')
+        
+        # Testa MCP específico
+        if mcp_name == 'supadata':
+            from services.supadata_mcp_client import supadata_client
+            import asyncio
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(
+                    supadata_client.search(test_query, "all")
+                )
+            finally:
+                loop.close()
+                
+        elif mcp_name == 'trendfinder':
+            from services.trendfinder_client import trendfinder_client
+            import asyncio
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(
+                    trendfinder_client.search(test_query)
+                )
+            finally:
+                loop.close()
+                
+        else:
+            return jsonify({
+                "success": False,
+                "error": f"MCP {mcp_name} não reconhecido"
+            }), 400
+        
+        return jsonify({
+            "success": True,
+            "mcp_name": mcp_name,
+            "test_result": result,
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao testar MCP {mcp_name}: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "mcp_name": mcp_name
+        }), 500

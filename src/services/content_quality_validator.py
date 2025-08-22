@@ -1,442 +1,199 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ARQV30 Enhanced v2.0 - Content Quality Validator
+ARQV30 Enhanced v3.0 - Content Quality Validator
 Validador de qualidade de conteúdo extraído
 """
 
 import logging
 import re
-from typing import Dict, Any, List, Optional
-from datetime import datetime
+from typing import Dict, Any, Optional
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
 class ContentQualityValidator:
     """Validador de qualidade de conteúdo"""
-    
+
     def __init__(self):
         """Inicializa o validador"""
-        self.min_content_length = 200  # Reduzido para ser menos rigoroso
-        self.min_word_count = 50       # Reduzido para ser menos rigoroso
-        self.max_navigation_ratio = 0.3
-        self.min_information_density = 0.05  # Reduzido para ser menos rigoroso
+        self.min_content_length = 100
+        self.quality_thresholds = {
+            'excellent': 90,
+            'good': 70,
+            'fair': 50,
+            'poor': 30
+        }
         
-        # Indicadores de páginas de erro
-        self.error_indicators = [
-            'página não encontrada', 'page not found', '404 error', '404 not found',
-            'acesso negado', 'access denied', 'forbidden', '403 forbidden',
-            'erro interno', 'internal server error', '500 error', '500 internal',
-            'site em manutenção', 'under maintenance', 'temporarily unavailable',
-            'javascript required', 'enable javascript', 'javascript disabled',
-            'cookies required', 'enable cookies', 'cookies disabled',
-            'browser not supported', 'navegador não suportado',
-            'connection timed out', 'conexão expirou',
-            'service unavailable', 'serviço indisponível',
-            'bad gateway', 'gateway timeout'
-        ]
-        
-        # Palavras de navegação/menu
-        self.navigation_words = [
-            'home', 'início', 'sobre', 'about', 'contato', 'contact',
-            'menu', 'navegação', 'navigation', 'login', 'entrar',
-            'cadastro', 'register', 'produtos', 'products', 'serviços',
-            'services', 'blog', 'notícias', 'news', 'ajuda', 'help',
-            'suporte', 'support', 'faq', 'termos', 'terms', 'privacidade',
-            'privacy', 'política', 'policy', 'cookies', 'sitemap',
-            'mapa do site', 'buscar', 'search', 'pesquisar'
-        ]
-        
-        # Palavras que indicam conteúdo de qualidade
-        self.quality_indicators = [
-            'análise', 'pesquisa', 'estudo', 'relatório', 'dados',
-            'estatística', 'mercado', 'tendência', 'oportunidade',
-            'estratégia', 'crescimento', 'inovação', 'tecnologia',
-            'business', 'marketing', 'vendas', 'cliente', 'consumidor',
-            'empresa', 'negócio', 'investimento', 'receita', 'lucro'
-        ]
-        
-        logger.info("Content Quality Validator inicializado")
-    
-    def validate_content(self, content: str, url: str = "", context: Dict[str, Any] = None) -> Dict[str, Any]:
+        logger.info("✅ Content Quality Validator inicializado")
+
+    def validate_content(self, content: str, url: str) -> Dict[str, Any]:
         """Valida qualidade do conteúdo extraído"""
-        
         if not content:
             return {
                 'valid': False,
-                'score': 0.0,
-                'reason': 'Conteúdo vazio',
-                'details': {}
+                'quality_score': 0,
+                'quality_level': 'invalid',
+                'issues': ['Conteúdo vazio'],
+                'url': url
             }
-        
-        # Executa todas as validações
-        validations = {
-            'length_check': self._check_content_length(content),
-            'error_page_check': self._check_error_page(content),
-            'navigation_ratio_check': self._check_navigation_ratio(content),
-            'information_density_check': self._check_information_density(content),
-            'language_check': self._check_language(content),
-            'structure_check': self._check_content_structure(content),
-            'relevance_check': self._check_relevance(content, context or {})
-        }
-        
-        # Calcula score geral
-        total_score = 0.0
-        max_score = 0.0
-        
-        for check_name, result in validations.items():
-            total_score += result['score'] * result['weight']
-            max_score += result['weight']
-        
-        final_score = (total_score / max_score) * 100 if max_score > 0 else 0
-        
-        # Determina se é válido
-        is_valid = final_score >= 40.0  # Score mínimo reduzido para 40%
-        
-        # Identifica razão principal se inválido
-        main_reason = "Conteúdo válido"
-        if not is_valid:
-            failed_checks = [name for name, result in validations.items() if not result['passed']]
-            if failed_checks:
-                main_reason = f"Falhou em: {', '.join(failed_checks)}"
-        
-        return {
-            'valid': is_valid,
-            'score': round(final_score, 2),
-            'reason': main_reason,
-            'details': validations,
-            'content_stats': self._get_content_stats(content),
+
+        validation_result = {
+            'valid': True,
+            'quality_score': 0,
+            'quality_level': 'poor',
+            'issues': [],
+            'strengths': [],
             'url': url,
-            'validated_at': datetime.now().isoformat()
+            'content_length': len(content),
+            'word_count': len(content.split())
         }
-    
-    def _check_content_length(self, content: str) -> Dict[str, Any]:
-        """Verifica comprimento do conteúdo"""
-        length = len(content)
+
+        # Testes de qualidade
+        score = 0
         
-        if length >= self.min_content_length:
-            score = min(100, (length / 2000) * 100)  # Score baseado em 2000 chars como ideal
-            return {
-                'passed': True,
-                'score': score,
-                'weight': 20,
-                'message': f'Comprimento adequado: {length} caracteres',
-                'value': length
-            }
+        # 1. Comprimento adequado (25 pontos)
+        if len(content) >= 2000:
+            score += 25
+            validation_result['strengths'].append('Conteúdo extenso')
+        elif len(content) >= 1000:
+            score += 20
+            validation_result['strengths'].append('Conteúdo substancial')
+        elif len(content) >= 500:
+            score += 15
+        elif len(content) >= self.min_content_length:
+            score += 10
         else:
-            score = max(20, (length / self.min_content_length) * 100)  # Score mínimo de 20
-            return {
-                'passed': length >= 100,  # Aceita se pelo menos 100 caracteres
-                'score': score,
-                'weight': 20,
-                'message': f'Conteúdo muito curto: {length} < {self.min_content_length}',
-                'value': length
-            }
-    
-    def _check_error_page(self, content: str) -> Dict[str, Any]:
-        """Verifica se é página de erro"""
-        content_lower = content.lower()
-        
-        found_errors = []
-        for indicator in self.error_indicators:
-            if indicator in content_lower:
-                found_errors.append(indicator)
-        
-        if found_errors:
-            return {
-                'passed': False,
-                'score': 0,
-                'weight': 30,
-                'message': f'Página de erro detectada: {found_errors[0]}',
-                'value': found_errors
-            }
+            validation_result['issues'].append('Conteúdo muito curto')
+
+        # 2. Densidade de informação (25 pontos)
+        words = content.split()
+        if len(words) >= 300:
+            score += 25
+            validation_result['strengths'].append('Alta densidade de palavras')
+        elif len(words) >= 150:
+            score += 20
+        elif len(words) >= 75:
+            score += 15
         else:
-            return {
-                'passed': True,
-                'score': 100,
-                'weight': 30,
-                'message': 'Não é página de erro',
-                'value': []
-            }
-    
-    def _check_navigation_ratio(self, content: str) -> Dict[str, Any]:
-        """Verifica proporção de palavras de navegação"""
-        words = content.lower().split()
-        
-        if len(words) == 0:
-            return {
-                'passed': False,
-                'score': 0,
-                'weight': 15,
-                'message': 'Nenhuma palavra encontrada',
-                'value': 0
-            }
-        
-        navigation_count = sum(1 for word in words if word in self.navigation_words)
-        navigation_ratio = navigation_count / len(words)
-        
-        if navigation_ratio <= self.max_navigation_ratio:
-            score = (1 - navigation_ratio) * 100
-            return {
-                'passed': True,
-                'score': score,
-                'weight': 15,
-                'message': f'Baixa proporção de navegação: {navigation_ratio:.2%}',
-                'value': navigation_ratio
-            }
-        else:
-            score = max(0, (self.max_navigation_ratio - navigation_ratio) * 100)
-            return {
-                'passed': False,
-                'score': score,
-                'weight': 15,
-                'message': f'Muitas palavras de navegação: {navigation_ratio:.2%}',
-                'value': navigation_ratio
-            }
-    
-    def _check_information_density(self, content: str) -> Dict[str, Any]:
-        """Verifica densidade de informação"""
-        words = content.lower().split()
-        
-        if len(words) == 0:
-            return {
-                'passed': False,
-                'score': 0,
-                'weight': 10,
-                'message': 'Nenhuma palavra encontrada',
-                'value': 0
-            }
-        
-        # Conta palavras informativas
-        info_count = sum(1 for word in words if word in self.quality_indicators)
-        info_density = info_count / len(words)
-        
-        if info_density >= self.min_information_density:
-            score = min(100, info_density * 1000)  # Amplifica score
-            return {
-                'passed': True,
-                'score': score,
-                'weight': 10,
-                'message': f'Boa densidade de informação: {info_density:.2%}',
-                'value': info_density
-            }
-        else:
-            score = (info_density / self.min_information_density) * 100
-            return {
-                'passed': False,
-                'score': score,
-                'weight': 10,
-                'message': f'Baixa densidade de informação: {info_density:.2%}',
-                'value': info_density
-            }
-    
-    def _check_language(self, content: str) -> Dict[str, Any]:
-        """Verifica se o conteúdo está em português"""
-        # Palavras comuns em português
-        portuguese_words = [
-            'que', 'não', 'uma', 'para', 'com', 'mais', 'como',
-            'mas', 'foi', 'pelo', 'pela', 'até', 'isso', 'ela',
-            'entre', 'depois', 'sem', 'mesmo', 'aos', 'seus',
-            'quem', 'nas', 'me', 'esse', 'eles', 'você', 'tinha',
-            'foram', 'essa', 'num', 'nem', 'suas', 'meu', 'às',
-            'minha', 'numa', 'pelos', 'elas', 'qual', 'nós', 'deles'
+            validation_result['issues'].append('Baixa densidade de palavras')
+
+        # 3. Presença de dados estruturados (20 pontos)
+        data_patterns = [
+            r'\d+%',  # Percentuais
+            r'R\$\s*[\d,\.]+',  # Valores monetários
+            r'\d+\s*(mil|milhão|bilhão)',  # Números grandes
+            r'20(2[3-9]|[3-9]\d)',  # Anos recentes
+            r'\d+\s*(empresas|clientes|usuários)'  # Quantidades
         ]
         
-        words = content.lower().split()
+        data_matches = 0
+        for pattern in data_patterns:
+            matches = len(re.findall(pattern, content, re.IGNORECASE))
+            data_matches += matches
         
-        if len(words) == 0:
-            return {
-                'passed': False,
-                'score': 0,
-                'weight': 5,
-                'message': 'Nenhuma palavra encontrada',
-                'value': 0
-            }
-        
-        portuguese_count = sum(1 for word in words if word in portuguese_words)
-        portuguese_ratio = portuguese_count / len(words)
-        
-        if portuguese_ratio >= 0.05:  # Pelo menos 5% de palavras em português
-            score = min(100, portuguese_ratio * 500)
-            return {
-                'passed': True,
-                'score': score,
-                'weight': 5,
-                'message': f'Conteúdo em português: {portuguese_ratio:.2%}',
-                'value': portuguese_ratio
-            }
+        if data_matches >= 10:
+            score += 20
+            validation_result['strengths'].append('Rico em dados numéricos')
+        elif data_matches >= 5:
+            score += 15
+        elif data_matches >= 2:
+            score += 10
         else:
-            return {
-                'passed': False,
-                'score': portuguese_ratio * 500,
-                'weight': 5,
-                'message': f'Pouco conteúdo em português: {portuguese_ratio:.2%}',
-                'value': portuguese_ratio
-            }
-    
-    def _check_content_structure(self, content: str) -> Dict[str, Any]:
-        """Verifica estrutura do conteúdo"""
-        lines = content.split('\n')
-        paragraphs = [line.strip() for line in lines if len(line.strip()) > 50]
+            validation_result['issues'].append('Poucos dados estruturados')
+
+        # 4. Qualidade da fonte (15 pontos)
+        domain = urlparse(url).netloc.lower()
         
-        # Verifica se tem parágrafos substanciais
-        if len(paragraphs) >= 3:
-            score = min(100, len(paragraphs) * 10)
-            return {
-                'passed': True,
-                'score': score,
-                'weight': 10,
-                'message': f'Boa estrutura: {len(paragraphs)} parágrafos',
-                'value': len(paragraphs)
-            }
+        if any(trusted in domain for trusted in [
+            'gov.br', 'edu.br', 'org.br', 'ibge.gov.br', 'sebrae.com.br'
+        ]):
+            score += 15
+            validation_result['strengths'].append('Fonte oficial/confiável')
+        elif any(news in domain for news in [
+            'g1.globo.com', 'exame.com', 'valor.globo.com', 'estadao.com.br'
+        ]):
+            score += 12
+            validation_result['strengths'].append('Fonte jornalística confiável')
+        elif domain.endswith('.com.br'):
+            score += 8
         else:
-            score = len(paragraphs) * 33
-            return {
-                'passed': False,
-                'score': score,
-                'weight': 10,
-                'message': f'Estrutura pobre: {len(paragraphs)} parágrafos',
-                'value': len(paragraphs)
-            }
-    
-    def _check_relevance(self, content: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Verifica relevância do conteúdo para o contexto"""
-        if not context:
-            return {
-                'passed': True,
-                'score': 50,  # Score neutro sem contexto
-                'weight': 10,
-                'message': 'Sem contexto para verificar relevância',
-                'value': 0
-            }
+            score += 5
+
+        # 5. Relevância do conteúdo (15 pontos)
+        relevance_keywords = [
+            'mercado', 'negócio', 'empresa', 'crescimento', 'oportunidade',
+            'tendência', 'análise', 'dados', 'pesquisa', 'estudo'
+        ]
         
         content_lower = content.lower()
-        relevance_score = 0
+        relevance_matches = sum(1 for keyword in relevance_keywords 
+                              if keyword in content_lower)
         
-        # Verifica termos do contexto
-        context_terms = []
-        
-        if context.get('segmento'):
-            context_terms.append(str(context['segmento']).lower())
-        
-        if context.get('produto'):
-            context_terms.append(str(context['produto']).lower())
-        
-        if context.get('publico'):
-            context_terms.append(str(context['publico']).lower())
-        
-        # Conta ocorrências dos termos
-        for term in context_terms:
-            if term and len(term) > 2:
-                occurrences = content_lower.count(term)
-                relevance_score += occurrences * 10
-        
-        # Normaliza score
-        normalized_score = min(100, relevance_score)
-        
-        if normalized_score >= 20:
-            return {
-                'passed': True,
-                'score': normalized_score,
-                'weight': 10,
-                'message': f'Conteúdo relevante: score {normalized_score}',
-                'value': relevance_score
-            }
+        if relevance_matches >= 8:
+            score += 15
+            validation_result['strengths'].append('Altamente relevante')
+        elif relevance_matches >= 5:
+            score += 12
+        elif relevance_matches >= 3:
+            score += 8
         else:
-            return {
-                'passed': False,
-                'score': normalized_score,
-                'weight': 10,
-                'message': f'Baixa relevância: score {normalized_score}',
-                'value': relevance_score
-            }
-    
-    def _get_content_stats(self, content: str) -> Dict[str, Any]:
-        """Obtém estatísticas do conteúdo"""
-        words = content.split()
-        lines = content.split('\n')
-        paragraphs = [line.strip() for line in lines if len(line.strip()) > 50]
+            validation_result['issues'].append('Baixa relevância temática')
+
+        # Determina nível de qualidade
+        validation_result['quality_score'] = score
         
-        # Conta números e percentuais
-        numbers = re.findall(r'\d+(?:\.\d+)?%?', content)
-        
-        # Conta valores monetários
-        money_values = re.findall(r'R\$\s*[\d,\.]+', content)
-        
-        return {
-            'character_count': len(content),
-            'word_count': len(words),
-            'line_count': len(lines),
-            'paragraph_count': len(paragraphs),
-            'number_count': len(numbers),
-            'money_value_count': len(money_values),
-            'avg_words_per_paragraph': len(words) / max(len(paragraphs), 1),
-            'avg_chars_per_word': len(content) / max(len(words), 1)
-        }
-    
-    def validate_batch(self, content_list: List[Dict[str, Any]], context: Dict[str, Any] = None) -> Dict[str, Any]:
+        if score >= self.quality_thresholds['excellent']:
+            validation_result['quality_level'] = 'excellent'
+        elif score >= self.quality_thresholds['good']:
+            validation_result['quality_level'] = 'good'
+        elif score >= self.quality_thresholds['fair']:
+            validation_result['quality_level'] = 'fair'
+        else:
+            validation_result['quality_level'] = 'poor'
+
+        # Valida se atende critérios mínimos
+        validation_result['valid'] = (
+            len(content) >= self.min_content_length and
+            score >= self.quality_thresholds['poor']
+        )
+
+        return validation_result
+
+    def validate_batch(self, content_dict: Dict[str, str]) -> Dict[str, Dict[str, Any]]:
         """Valida múltiplos conteúdos em lote"""
-        results = []
+        results = {}
         
-        for i, content_item in enumerate(content_list):
-            content = content_item.get('content', '')
-            url = content_item.get('url', f'item_{i}')
-            
-            validation = self.validate_content(content, url, context)
-            validation['item_index'] = i
-            results.append(validation)
+        for url, content in content_dict.items():
+            results[url] = self.validate_content(content, url)
         
-        # Estatísticas do lote
-        valid_count = sum(1 for r in results if r['valid'])
-        total_count = len(results)
-        avg_score = sum(r['score'] for r in results) / max(total_count, 1)
+        return results
+
+    def get_validation_summary(self, validations: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """Gera resumo das validações"""
+        total = len(validations)
+        valid_count = sum(1 for v in validations.values() if v['valid'])
         
+        quality_distribution = {}
+        for validation in validations.values():
+            level = validation['quality_level']
+            quality_distribution[level] = quality_distribution.get(level, 0) + 1
+
+        avg_score = sum(v['quality_score'] for v in validations.values()) / total if total > 0 else 0
+
         return {
-            'batch_results': results,
-            'batch_stats': {
-                'total_items': total_count,
-                'valid_items': valid_count,
-                'invalid_items': total_count - valid_count,
-                'success_rate': (valid_count / max(total_count, 1)) * 100,
-                'average_score': round(avg_score, 2)
-            },
-            'validated_at': datetime.now().isoformat()
+            'total_validated': total,
+            'valid_content': valid_count,
+            'invalid_content': total - valid_count,
+            'success_rate': (valid_count / total * 100) if total > 0 else 0,
+            'average_quality_score': round(avg_score, 2),
+            'quality_distribution': quality_distribution,
+            'extractor_stats': self.get_extractor_stats()
         }
-    
-    def get_quality_report(self, validation_result: Dict[str, Any]) -> str:
-        """Gera relatório de qualidade legível"""
-        
-        if not validation_result:
-            return "❌ Nenhum resultado de validação fornecido"
-        
-        score = validation_result.get('score', 0)
-        valid = validation_result.get('valid', False)
-        details = validation_result.get('details', {})
-        stats = validation_result.get('content_stats', {})
-        
-        report = []
-        
-        # Status geral
-        status_icon = "✅" if valid else "❌"
-        report.append(f"{status_icon} QUALIDADE: {score:.1f}% - {'VÁLIDO' if valid else 'INVÁLIDO'}")
-        
-        # Estatísticas básicas
-        if stats:
-            report.append(f"📊 ESTATÍSTICAS:")
-            report.append(f"   • {stats.get('character_count', 0):,} caracteres")
-            report.append(f"   • {stats.get('word_count', 0):,} palavras")
-            report.append(f"   • {stats.get('paragraph_count', 0)} parágrafos")
-        
-        # Detalhes das verificações
-        if details:
-            report.append(f"🔍 VERIFICAÇÕES:")
-            for check_name, result in details.items():
-                icon = "✅" if result['passed'] else "❌"
-                score_text = f"{result['score']:.1f}%"
-                message = result['message']
-                report.append(f"   {icon} {check_name}: {score_text} - {message}")
-        
-        return '\n'.join(report)
+
+    def get_extractor_stats(self) -> Dict[str, Any]:
+        """Retorna estatísticas do extrator"""
+        return self.stats.copy()
 
 # Instância global
 content_quality_validator = ContentQualityValidator()
